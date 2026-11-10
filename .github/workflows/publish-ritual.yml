@@ -1,0 +1,39 @@
+name: Publish Ritual site
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'ritual/**'
+      - '.github/workflows/publish-ritual.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Package Ritual web app
+        run: |
+          mkdir -p /tmp/ritual-website
+          cp ritual/index.html ritual/manifest.webmanifest ritual/sw.js ritual/icon.svg /tmp/ritual-website/
+          cd /tmp/ritual-website
+          zip -q -9 /tmp/ritual-website.zip index.html manifest.webmanifest sw.js icon.svg
+      - name: Publish site over HTTPS
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --show-error --silent --location --retry 2 --max-time 90 \
+            --header 'Content-Type: application/zip' \
+            --data-binary '@/tmp/ritual-website.zip' \
+            'https://ship.page/deploy' > /tmp/ritual-response.json
+          python3 - <<'PY'
+          import json
+          from urllib.parse import urlparse
+          d = json.load(open('/tmp/ritual-response.json'))
+          url = d.get('url') or d.get('site_url') or (d.get('result') or {}).get('url')
+          if not isinstance(url, str) or urlparse(url).scheme != 'https':
+              raise SystemExit('Deployment response had no HTTPS URL')
+          print("RITUAL_LIVE_URL=" + url, flush=True)
+          PY
